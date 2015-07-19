@@ -46,6 +46,8 @@ volatile boolean record = false;
 IRrecv irrecv(RECV_PIN);
 decode_results results;
 
+volatile int timer1_overflow_count = 0;
+
 void setup()
 {
   //Begin interrupts, set up pins
@@ -57,6 +59,17 @@ void setup()
   pinMode(RECV_PIN, INPUT);
   pinMode(RECORD_PIN, OUTPUT);
   state = digitalRead(SHARP_PIN);
+  
+  Serial.begin(9600);
+  // initialize timer1 
+  noInterrupts();           // disable all interrupts
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1=0;
+  TCCR1B &= ~(_BV(CS12) | _BV(CS11) | _BV(CS10));
+  TCCR1B =  ( _BV(CS12));
+  TIMSK1 |= (1 << TOIE1);   // enable timer overflow interrupt
+  interrupts();             // enable all interrupts
 }
 
 void loop() {
@@ -75,8 +88,8 @@ void loop() {
   if (irrecv.decode(&results)) {
     if (record && count >= 0) {
       //If its currently recording, add notes to the array, and keep track of the duration in-between
-      note_duration[count] = millis() - start_time;
-      start_time = millis();
+      note_duration[count] = new_millis() - start_time;
+      start_time = new_millis();
       recording[count] = read_infrared();
     }
     else {
@@ -122,20 +135,20 @@ void stopTone() {
 void debounce_record() {
   //We found buttons to be unreliable, so we check if the button was pressed multiple times
   //In a given interval. If so, we only trigger the function once.
-  if ((millis() - last_debounce_time) >= debounce_delay) {
+  if ((new_millis() - last_debounce_time) >= debounce_delay) {
     toggle_record();
 
   }
   //Keeps track of the last time the button was pressed
-  last_debounce_time = millis();
+  last_debounce_time = new_millis();
 }
 
 void debounce_lengthen(){
   //Same as the debounce_record function, but to lengthen notes
-  if((millis()-last_lengthen_time)>=debounce_delay){
+  if((new_millis()-last_lengthen_time)>=debounce_delay){
     lengthen();
   }
-  last_lengthen_time = millis();
+  last_lengthen_time = new_millis();
 }
 
 void lengthen() {
@@ -146,7 +159,7 @@ void toggle_record() {
   //This toggles the recording - stops and starts it
   count = 0;
   //Keep track of the start time, set record on/off
-  start_time = millis();
+  start_time = new_millis();
   record = !record;
   //If the function is recording, reset the array of notes
   if (record) {
@@ -220,4 +233,13 @@ float read_infrared() {
   return tone_freq; //returns the frequency played to record 
 }
 
+ISR(TIMER1_OVF_vect)
+{
+  TCNT1=0;
+  timer1_overflow_count++;
+}
 
+unsigned long new_millis()
+{
+  return (TCNT1+timer1_overflow_count*65536)/256.0;
+}
